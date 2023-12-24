@@ -1,0 +1,265 @@
+%based on the paper 
+
+% addpath('./core/');
+
+ 
+
+close all;
+clear
+Tac = 65;
+Tni = 0.9;
+
+% 这里是读取图片的路径
+dir_name = '.\testronghexiao\L';
+% 这是保存最后得到的点的路径，现在是左图像的路径，如果需要右图像则将L改为R
+file_name = '.\result_xiaoban\L\';
+files = dir(fullfile(dir_name,'*.bmp'));
+left_center = [];
+ write_1 = 1;
+ mm = 10; % 代表处理哪张图片，
+for z = mm  %: length(files)
+    filename = fullfile(dir_name, files(z).name);  % 获取完整的文件路径
+    fname = filename;
+    % disp('read image------------------------------------------------');
+    I = imread(fname);
+    %设置噪声
+    noise = 0;
+    I = imnoise(I, 'gaussian',0, noise);
+    % circle detections
+    % disp('circle detetion-------------------------------------------');
+    [circles, ~,~] = circleDetectionByArcsupportLS(I, Tac, Tni);
+    % circles
+    % 根据得到的圆心进行过滤
+    % 遍历圆心
+    center_size = 80; % 圆半径的大小(超过这个范围就认为是噪声圆)
+    circles_new = [];
+    index = [];
+    for i = 1 : size(circles,1)
+        % 说明这些数据已经是需要消除了的
+        if ismember(i, index)
+            continue
+        end
+        storage_circle = [];  % 定义一个存放圆的地方
+        % 如果圆的半径超过了center_size,那么就认为这个圆是噪声圆
+        if circles(i,3) > center_size
+            continue
+        end
+        % 如果不是噪声圆，我就将这个圆先存放到零时变量storage_circle中
+        storage_circle = [storage_circle; circles(i,:)];
+        for j = i:size(circles,1)
+            if ismember(j, index)
+                continue
+            end
+            dis = sqrt(power((circles(i, 1) - circles(j, 1)),2) + power(circles(i, 2) - circles(j, 2),2));
+            diff_r = circles(i,3) - circles(j,3);
+            % 如果是同一个圆的话，就跳过保存
+            if dis == 0 && diff_r == 0
+                continue
+            % 如果相等，那么说明是同一个点，此时直接跳过
+            elseif (dis >= 0 && dis < 20)  % 如果圆心之间的差距在范围:[0,20)内，那么就说明这两个圆可能是同一个圆
+                % 那么我就将这个圆保存下来
+                storage_circle = [storage_circle;circles(j,:)];
+                % 并且此时保存的数据的索引进行保存，方便后续的消除
+                index = [index,j];
+            end
+        end
+        % 根据上面保存下来的数据来计算最后的平均值
+        % 按照列的方式来求均值,并且将求出来的均值存放到最后的结果中
+        if size(storage_circle,1) == 1
+            % 表示只有一个样本，此时就不用求均值
+            circles_new = [circles_new; storage_circle];
+        else
+            % 表示有多个样本，此时就需要求均值
+            %circles_new = [circles_new; mean(storage_circle)];
+            x = mean(storage_circle(:,1));
+            y = mean(storage_circle(:,2));
+            r_min = min(storage_circle(:,3));
+            r_sum = sum(storage_circle(:,3));
+            r = 0;
+            size_storage = size(storage_circle,1);
+            for m = 1:size_storage
+                if storage_circle(m,3) == r_min
+                    r = r + 0.8*storage_circle(m,3);
+                else
+                    r = r + (size_storage-1)/size_storage * 0.2 * storage_circle(m,3);
+                end
+                    
+            end
+            circles_new = [circles_new; [x,y,r]];
+        end
+    end
+     circles_new;
+%      dispImg = drawCircle(I,circles(:,1:2),circles(:,3));
+      dispImg_new = drawCircle(I,circles_new(:,1:2),circles_new(:,3));   
+
+%      figure;
+%      imshow(dispImg)
+     figure(10);
+   
+    imshow(dispImg_new)
+%%%%%%%%%%%%%%%增加标号
+    hold on;
+
+    Centers = circles_new(:,1:2);
+    for i = 1 : size(circles_new, 1)
+        circles_new(:,1:2);
+        text(round(Centers(i,1))+20,round(Centers(i,2))+20,num2str(i), 'Color', 'red', 'FontSize', 14);
+ 
+    end
+%%%%%%%%%%%%%%%增加标号
+
+    % 写入文件路径
+    if write_1 == 1
+        files_path = [file_name, num2str(z),'.txt'];
+        start_angle = 0;  % 起始角度
+        end_angle = 2 * pi;  % 结束角度
+        num_point = 60;  % 生成的点的个数
+        theta = linspace(start_angle, end_angle, num_point);  % 生成一些角度值
+        fid = fopen( files_path,'a');
+        center_xy = []; % 用于存放x,y坐标
+        for  m =1: size(circles_new,1)
+            circles_new(m,:)
+            fprintf(fid,'%.4f,%.4f,%.4f\n',[circles_new(m,:)]); % 第一行保存的是代表的是 圆中心 与 半径 eg：246.1084   70.4799   17.7772
+            % 生成角度范围内的点坐标,并同时进行转置操作
+            x = (circles_new(m,1) + circles_new(m,3) * cos(theta))';
+            y = (circles_new(m,2) + circles_new(m,3) * sin(theta))';
+            % 将坐标进行拼接
+            center_xy = [x,y];
+            fprintf(fid,'%.4f,%.4f\n',[center_xy(:,:)]); % 第二行开始 往后 60行  每一行是 每一个圆被取了 60个点，eg:263.8855,263.7848
+        end
+        disp('写入成功')
+        fclose(fid);
+        left_center = circles_new;
+    end
+end
+% L图像存在result-daban L 2txt中存了，12个孔，每一个孔村 61行，是12X61 = 732行
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Tac = 20;
+Tni = 0.5;
+% 这里是读取图片的路径
+dir_name = '.\testronghexiao\R';
+% 这是保存最后得到的点的路径，现在是左图像的路径，如果需要右图像则将L改为R
+file_name = '.\result_xiaoban\R\';
+files = dir(fullfile(dir_name,'*.bmp'));
+for z = mm  %: length(files)
+    filename = fullfile(dir_name, files(z).name);  % 获取完整的文件路径
+    fname = filename;
+    % disp('read image------------------------------------------------');
+    I = imread(fname);
+    %设置噪声
+    noise = 0;
+    I = imnoise(I, 'gaussian',0, noise);
+    % circle detections
+    % disp('circle detetion-------------------------------------------');
+    [circles, ~,~] = circleDetectionByArcsupportLS(I, Tac, Tni);
+    % circles
+    % 根据得到的圆心进行过滤
+    % 遍历圆心
+    center_size = 75; % 圆半径的大小(超过这个范围就认为是噪声圆)
+    circles_new = [];
+    index = [];
+    for i = 1 : size(circles,1)
+        % 说明这些数据已经是需要消除了的
+        if ismember(i, index)
+            continue
+        end
+        storage_circle = [];  % 定义一个存放圆的地方
+        % 如果圆的半径超过了center_size,那么就认为这个圆是噪声圆
+        if circles(i,3) > center_size
+            continue
+        end
+        % 如果不是噪声圆，我就将这个圆先存放到零时变量storage_circle中
+        storage_circle = [storage_circle; circles(i,:)];
+        for j = i:size(circles,1)
+            if ismember(j, index)
+                continue
+            end
+            dis = sqrt(power((circles(i, 1) - circles(j, 1)),2) + power(circles(i, 2) - circles(j, 2),2));
+            diff_r = circles(i,3) - circles(j,3);
+            % 如果是同一个圆的话，就跳过保存
+            if dis == 0 && diff_r == 0
+                continue
+            % 如果相等，那么说明是同一个点，此时直接跳过
+            elseif (dis >= 0 && dis < 20)  % 如果圆心之间的差距在范围:[0,20)内，那么就说明这两个圆可能是同一个圆
+                % 那么我就将这个圆保存下来
+                storage_circle = [storage_circle;circles(j,:)];
+                % 并且此时保存的数据的索引进行保存，方便后续的消除
+                index = [index,j];
+            end
+        end
+        % 根据上面保存下来的数据来计算最后的平均值
+        % 按照列的方式来求均值,并且将求出来的均值存放到最后的结果中
+        if size(storage_circle,1) == 1
+            % 表示只有一个样本，此时就不用求均值
+            circles_new = [circles_new; storage_circle];
+        else
+            % 表示有多个样本，此时就需要求均值
+            %circles_new = [circles_new; mean(storage_circle)];
+            x = mean(storage_circle(:,1));
+            y = mean(storage_circle(:,2));
+            r_min = min(storage_circle(:,3));
+            r_sum = sum(storage_circle(:,3));
+            r = 0;
+            size_storage = size(storage_circle,1);
+            for m = 1:size_storage
+                if storage_circle(m,3) == r_min
+                    r = r + 0.8*storage_circle(m,3);
+                else
+                    r = r + (size_storage-1)/size_storage * 0.2 * storage_circle(m,3);
+                end
+                    
+            end
+            circles_new = [circles_new; [x,y,r]];
+        end
+    end
+     circles_new;
+     dispImg = drawCircle(I,circles(:,1:2),circles(:,3));
+     dispImg_new = drawCircle(I,circles_new(:,1:2),circles_new(:,3));
+%      figure;
+%      imshow(dispImg)
+     figure(11);
+     imshow(dispImg_new)
+
+
+%%%%%%%%%%%%%%%增加标号
+    hold on;
+
+    Centers = circles_new(:,1:2);
+    for i = 1 : size(circles_new, 1)
+        circles_new(:,1:2);
+        text(round(Centers(i,1))+20,round(Centers(i,2))+20,num2str(i), 'Color', 'red', 'FontSize', 14);
+ 
+    end
+%%%%%%%%%%%%%%%增加标号
+
+    % 写入文件路径
+    if write_1 == 1
+        files_path = [file_name, num2str(z),'.txt'];
+        start_angle = 0;  % 起始角度
+        end_angle = 2 * pi;  % 结束角度
+        num_point = 60;  % 生成的点的个数
+        theta = linspace(start_angle, end_angle, num_point);  % 生成一些角度值
+        fid = fopen( files_path,'a');
+        center_xy = []; % 用于存放x,y坐标
+        for  n =1: size(left_center,1)
+            for m = 1:size(circles_new,1)
+                % 计算两个圆心之间的距离
+                dis = sqrt(power((circles_new(m, 1) - left_center(n, 1)),2) + power(circles_new(m, 2) - left_center(n, 2),2));                
+                if dis >=0 && dis <50
+                    % 此时就将当前的数据写入进去
+                    fprintf(fid,'%.4f,%.4f,%.4f\n',[circles_new(m,:)]);
+                    % 生成角度范围内的点坐标,并同时进行转置操作
+                    x = (circles_new(m,1) + circles_new(m,3) * cos(theta))';
+                    y = (circles_new(m,2) + circles_new(m,3) * sin(theta))';
+                    % 将坐标进行拼接
+                    center_xy = [x,y];
+                    fprintf(fid,'%.4f,%.4f\n',[center_xy(:,:)]);
+                end
+            end
+        end
+        disp('写入成功')
+        fclose(fid);
+    end
+end
